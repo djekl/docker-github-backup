@@ -1,8 +1,8 @@
 FROM alpine:3.18
 
 # Create non-root user early for better security
-RUN addgroup -g 1000 -S app && \
-    adduser -u 1000 -S app -G app
+RUN addgroup -g 100 -S app && \
+    adduser -u 99 -S app -G app
 
 # Set working directory
 WORKDIR /app
@@ -23,10 +23,10 @@ COPY backup.sh ./backup.sh
 
 # Set proper permissions
 RUN chmod +x ./backup.sh && \
-    chown -R 1000:1000 /app
+    chown -R 99:100 /app
 
 # Switch to non-root user
-USER 1000:1000
+USER 99:100
 
 # Create volume for backups (optional, can be mounted externally)
 VOLUME ["/app/backups"]
