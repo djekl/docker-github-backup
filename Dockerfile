@@ -1,24 +1,35 @@
-FROM alpine:3.9
+FROM alpine:3.18
 
-# Prepare Alpine for use
-RUN mkdir -p /home/docker/github-backup/config;
-ENV HOME /home/docker
+# Create non-root user early for better security
+RUN addgroup -g 1000 -S app && \
+    adduser -u 1000 -S app -G app
 
-# Copy files from git
-COPY github-backup.py /home/docker/github-backup/github-backup.py
-COPY requirements.txt /home/docker/github-backup/requirements.txt
-COPY config.json.example /home/docker/github-backup/config.json.example
-COPY backup.sh /home/docker/github-backup/backup.sh
+# Set working directory
+WORKDIR /app
 
-# Install prerequisites
-WORKDIR /home/docker/github-backup
-RUN apk add --no-cache python3 py3-pip git; \
-    pip3 install --upgrade pip; \
-    pip3 install -r requirements.txt; \
-    chmod -R 777 /home/docker; \
-    chown -R 99:100 /home/docker; \
-    chmod +x backup.sh;
+# Copy only what's needed for dependency installation first (better caching)
+COPY requirements.txt .
+COPY github-backup.py .
 
-USER 99:100
-# Define default command.
+# Install dependencies and clean up in one layer
+RUN apk add --no-cache python3 py3-pip git && \
+    pip3 install --upgrade pip && \
+    pip3 install -r requirements.txt && \
+    rm -f requirements.txt
+
+# Copy remaining files
+COPY config.json.example ./config.json.example
+COPY backup.sh ./backup.sh
+
+# Set proper permissions
+RUN chmod +x ./backup.sh && \
+    chown -R 1000:1000 /app
+
+# Switch to non-root user
+USER 1000:1000
+
+# Create volume for backups (optional, can be mounted externally)
+VOLUME ["/app/backups"]
+
+# Define default command
 CMD ["./backup.sh"]
