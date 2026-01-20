@@ -141,8 +141,18 @@ def main():
     with open(args.config, "rb") as f:
         config = json.loads(f.read())
 
-    # Handle both single token and multiple tokens
-    tokens_config = config["tokens"]
+    # Handle both 'token' (legacy) and 'tokens' (new) config formats
+    if "tokens" in config:
+        tokens_config = config["tokens"]
+    elif "token" in config:
+        tokens_config = config["token"]
+        # Convert single token to list for consistency
+        if isinstance(tokens_config, str):
+            tokens_config = [tokens_config]
+    else:
+        raise ValueError("Config must contain either 'tokens' or 'token' field")
+
+    # Handle multiple tokens format
     if isinstance(tokens_config, str):
         tokens = [token.strip() for token in tokens_config.split(",")]
     elif isinstance(tokens_config, list):
