@@ -72,6 +72,55 @@ def mirror(repo_name, repo_url, to_path, username, token):
     )
 
 
+def backup_repositories_for_token(token, base_path):
+    """Backup repositories for a single token"""
+    user = next(get_json("https://api.github.com/user", token))
+    user_login = user["login"]
+    
+    # Fetch organizations the user has access to
+    orgs = []
+    try:
+        for page in get_json("https://api.github.com/user/orgs", token):
+            orgs.extend(page)
+    except requests.exceptions.HTTPError as e:
+        print(f"Warning: Could not fetch organizations for token ending in {token[-4:]}: {e}", file=sys.stderr)
+        orgs = []
+
+    # Backup repositories for each organization
+    for org in orgs:
+        org_login = org["login"]
+        org_path = os.path.join(base_path, org_login)
+        mkdir(org_path)
+        print(f"Backing up organization: {org_login}")
+
+        # Fetch repositories for the organization
+        try:
+            for page in get_json("https://api.github.com/orgs/{}/repos".format(org_login), token):
+                for repo in page:
+                    name = check_name(repo["name"])
+                    clone_url = repo["clone_url"]
+                    print(f"  Backing up repo: {org_login}/{name}")
+                    mirror(name, clone_url, org_path, user["login"], token)
+        except requests.exceptions.HTTPError as e:
+            print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
+
+    # Backup user's own repositories in a folder named after the user
+    user_path = os.path.join(base_path, user_login)
+    mkdir(user_path)
+    print(f"Backing up user repositories for: {user_login}")
+
+    try:
+        for page in get_json("https://api.github.com/user/repos", token):
+            for repo in page:
+                name = check_name(repo["name"])
+                owner = check_name(repo["owner"]["login"])
+                clone_url = repo["clone_url"]
+                print(f"  Backing up repo: {owner}/{name}")
+                mirror(name, clone_url, user_path, user["login"], token)
+    except requests.exceptions.HTTPError as e:
+        print(f"Warning: Could not fetch user repos: {e}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Backup GitHub repositories")
     parser.add_argument("config", metavar="CONFIG", help="a configuration file")
@@ -80,48 +129,32 @@ def main():
     with open(args.config, "rb") as f:
         config = json.loads(f.read())
 
-    owners = config.get("owners")
-    token = config["token"]
+    # Handle both single token and multiple tokens
+    tokens_config = config["tokens"]
+    if isinstance(tokens_config, str):
+        tokens = [token.strip() for token in tokens_config.split(",")]
+    elif isinstance(tokens_config, list):
+        tokens = tokens_config
+    else:
+        raise ValueError("tokens must be a string (comma-separated) or a list")
+
     path = os.path.expanduser(config["directory"])
     if mkdir(path):
         print("Created directory {0}".format(path), file=sys.stderr)
 
-    user = next(get_json("https://api.github.com/user", token))
-    user_login = user["login"]
-
-    # Fetch organizations the user has access to
-    orgs = []
-    for page in get_json("https://api.github.com/user/orgs", token):
-        orgs.extend(page)
-
-    # Backup repositories for each organization
-    for org in orgs:
-        org_login = org["login"]
-        org_path = os.path.join(path, org_login)
-        mkdir(org_path)
-
-        # Fetch repositories for the organization
-        for page in get_json("https://api.github.com/orgs/{}/repos".format(org_login), token):
-            for repo in page:
-                name = check_name(repo["name"])
-                clone_url = repo["clone_url"]
-
-                mirror(name, clone_url, org_path, user["login"], token)
-
-    # Backup user's own repositories in a folder named after the user
-    user_path = os.path.join(path, user_login)
-    mkdir(user_path)
-
-    for page in get_json("https://api.github.com/user/repos", token):
-        for repo in page:
-            name = check_name(repo["name"])
-            owner = check_name(repo["owner"]["login"])
-            clone_url = repo["clone_url"]
-
-            if owners and owner not in owners:
-                continue
-
-            mirror(name, clone_url, user_path, user["login"], token)
+    # Process each token
+    for i, token in enumerate(tokens):
+        if len(tokens) > 1:
+            print(f"\nProcessing token {i+1}/{len(tokens)}", file=sys.stderr)
+        else:
+            print("Processing token", file=sys.stderr)
+            
+        try:
+            backup_repositories_for_token(token, path)
+        except Exception as e:
+            print(f"Error processing token ending in {token[-4:]}: {e}", file=sys.stderr)
+            if len(tokens) == 1:  # If only one token, exit on error
+                raise
 
 
 if __name__ == "__main__":
