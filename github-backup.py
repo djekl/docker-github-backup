@@ -74,24 +74,34 @@ def mirror(repo_name, repo_url, to_path, username, token):
 
 def backup_repositories_for_token(token, base_path):
     """Backup repositories for a single token"""
-    user = next(get_json("https://api.github.com/user", token))
+    try:
+        user = next(get_json("https://api.github.com/user", token))
+    except requests.exceptions.HTTPError as e:
+        print(f"Error: Could not authenticate with token: {e}", file=sys.stderr)
+        return False
+    
     user_login = user["login"]
     
+    # Create base directory for this token (named after the user)
+    token_base_path = os.path.join(base_path, user_login)
+    mkdir(token_base_path)
+    print(f"Backing up repositories for user: {user_login} to {token_base_path}")
+
     # Fetch organizations the user has access to
     orgs = []
     try:
         for page in get_json("https://api.github.com/user/orgs", token):
             orgs.extend(page)
     except requests.exceptions.HTTPError as e:
-        print(f"Warning: Could not fetch organizations for token ending in {token[-4:]}: {e}", file=sys.stderr)
+        print(f"Warning: Could not fetch organizations for user {user_login}: {e}", file=sys.stderr)
         orgs = []
 
     # Backup repositories for each organization
     for org in orgs:
         org_login = org["login"]
-        org_path = os.path.join(base_path, org_login)
+        org_path = os.path.join(token_base_path, org_login)
         mkdir(org_path)
-        print(f"Backing up organization: {org_login}")
+        print(f"  Backing up organization: {org_login}")
 
         # Fetch repositories for the organization
         try:
@@ -99,15 +109,15 @@ def backup_repositories_for_token(token, base_path):
                 for repo in page:
                     name = check_name(repo["name"])
                     clone_url = repo["clone_url"]
-                    print(f"  Backing up repo: {org_login}/{name}")
+                    print(f"    Backing up repo: {org_login}/{name}")
                     mirror(name, clone_url, org_path, user["login"], token)
         except requests.exceptions.HTTPError as e:
             print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
 
     # Backup user's own repositories in a folder named after the user
-    user_path = os.path.join(base_path, user_login)
+    user_path = os.path.join(token_base_path, user_login)
     mkdir(user_path)
-    print(f"Backing up user repositories for: {user_login}")
+    print(f"  Backing up personal repositories for: {user_login}")
 
     try:
         for page in get_json("https://api.github.com/user/repos", token):
@@ -115,10 +125,12 @@ def backup_repositories_for_token(token, base_path):
                 name = check_name(repo["name"])
                 owner = check_name(repo["owner"]["login"])
                 clone_url = repo["clone_url"]
-                print(f"  Backing up repo: {owner}/{name}")
+                print(f"    Backing up repo: {owner}/{name}")
                 mirror(name, clone_url, user_path, user["login"], token)
     except requests.exceptions.HTTPError as e:
-        print(f"Warning: Could not fetch user repos: {e}", file=sys.stderr)
+        print(f"Warning: Could not fetch user repos for {user_login}: {e}", file=sys.stderr)
+    
+    return True
 
 
 def main():
@@ -145,16 +157,13 @@ def main():
     # Process each token
     for i, token in enumerate(tokens):
         if len(tokens) > 1:
-            print(f"\nProcessing token {i+1}/{len(tokens)}", file=sys.stderr)
+            print(f"\nProcessing token {i+1}/{len(tokens)} (ending in {token[-4:]})", file=sys.stderr)
         else:
             print("Processing token", file=sys.stderr)
             
-        try:
-            backup_repositories_for_token(token, path)
-        except Exception as e:
-            print(f"Error processing token ending in {token[-4:]}: {e}", file=sys.stderr)
-            if len(tokens) == 1:  # If only one token, exit on error
-                raise
+        success = backup_repositories_for_token(token, path)
+        if not success and len(tokens) == 1:  # If only one token, exit on error
+            sys.exit(1)
 
 
 if __name__ == "__main__":
