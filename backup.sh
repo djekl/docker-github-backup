@@ -1,13 +1,14 @@
 #!/bin/sh
 
-echo "Project: github-backup"
-echo "Author:  lnxd"
+echo "Project: docker-github-backup"
+echo "Author:  djekl"
 echo "Base:    Alpine"
 echo "Target:  Generic Docker"
 echo ""
 
 # Create config directory if it doesn't exist
 mkdir -p /app/config
+mkdir -p /app/backups
 
 # If config doesn't exist yet, create it from example
 if [ ! -f /app/config/config.json ]; then
@@ -20,19 +21,23 @@ cp /app/config/config.json /app/config.json
 
 # If TOKEN environment variable is set, update the config
 if [ -n "$TOKEN" ]; then
-    echo "Updating token in config..."
-    # Handle multiple tokens if TOKEN contains commas
+    echo "Updating tokens in config..."
+    # Handle multiple tokens if TOKEN contains commas, otherwise single token
     if echo "$TOKEN" | grep -q ","; then
-        # Multiple tokens - update the tokens array
-        sed -i 's|"tokens"[^,]*|&|g' /app/config.json
-        sed -i '/"tokens"/c\  "tokens" : "'${TOKEN}'",\' /app/config.json
+        # Multiple tokens - create proper JSON array
+        ESCAPED_TOKENS=$(echo "$TOKEN" | sed 's/,/", "/g')
+        sed -i '/"tokens"/c\  "tokens" : ["'"${ESCAPED_TOKENS}"'"],\' /app/config.json
     else
-        # Single token - maintain backward compatibility
-        sed -i '/"token"/c\  "token" : "'${TOKEN}'",\' /app/config.json
-        # Also update tokens field if it exists
-        sed -i '/"tokens"/c\  "tokens" : "'${TOKEN}'",\' /app/config.json || true
+        # Single token - create tokens array with one element
+        sed -i '/"tokens"/c\  "tokens" : ["'"${TOKEN}"'"],\' /app/config.json || \
+        sed -i '/"token"/c\  "tokens" : ["'"${TOKEN}"'"],\' /app/config.json || \
+        echo '  "tokens" : ["'"${TOKEN}"'"]' >> /app/config.json
     fi
 fi
+
+# Ensure directory field exists and is correct
+sed -i '/"directory"/c\  "directory" : "/app/backups"' /app/config.json || \
+echo '  "directory" : "/app/backups"' >> /app/config.json
 
 # Copy updated config back to persistent volume
 cp /app/config.json /app/config/config.json
