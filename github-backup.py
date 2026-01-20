@@ -114,19 +114,30 @@ def backup_repositories_for_token(token, base_path):
         except requests.exceptions.HTTPError as e:
             print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
 
-    # Backup user's own repositories in a folder named after the user
-    user_path = os.path.join(token_base_path, user_login)
-    mkdir(user_path)
-    print(f"  Backing up personal repositories for: {user_login}")
-
+    # Backup ALL repositories accessible to the user, organized by actual owner
+    print(f"  Backing up all repositories accessible to: {user_login}")
+    
+    processed_repos = set()  # Track already backed up repos to avoid duplicates
+    
     try:
         for page in get_json("https://api.github.com/user/repos", token):
             for repo in page:
                 name = check_name(repo["name"])
                 owner = check_name(repo["owner"]["login"])
                 clone_url = repo["clone_url"]
+                
+                # Create unique identifier to prevent duplicates
+                repo_id = f"{owner}/{name}"
+                if repo_id in processed_repos:
+                    continue
+                processed_repos.add(repo_id)
+                
+                # Create directory structure based on actual repository owner
+                owner_path = os.path.join(token_base_path, owner)
+                mkdir(owner_path)
+                
                 print(f"    Backing up repo: {owner}/{name}")
-                mirror(name, clone_url, user_path, user["login"], token)
+                mirror(name, clone_url, owner_path, user["login"], token)
     except requests.exceptions.HTTPError as e:
         print(f"Warning: Could not fetch user repos for {user_login}: {e}", file=sys.stderr)
     
