@@ -31,20 +31,23 @@ def check_name(name):
 
 
 def mkdir(path):
-    """Create directory with error handling"""
+    """Create directory with Unraid-compatible permissions"""
     try:
-        os.makedirs(path, 0o775, exist_ok=True)
+        os.makedirs(path, 0o777, exist_ok=True)
+        # Try to ensure correct ownership (may fail in some environments)
+        try:
+            os.chown(path, 99, 100)
+        except:
+            pass  # Non-critical if this fails
         return True
     except PermissionError:
-        # Try with more permissive permissions
-        try:
-            os.makedirs(path, 0o777, exist_ok=True)
-            return True
-        except Exception:
-            print(f"Warning: Could not create directory {path}", file=sys.stderr)
-            return False
-    except Exception:
+        print(f"Permission denied creating directory: {path}", file=sys.stderr)
         return False
+    except Exception as e:
+        if errno.errorcode.get(e.errno) != 'EEXIST':
+            print(f"Error creating directory {path}: {e}", file=sys.stderr)
+            return False
+        return True
 
 
 def mirror(repo_name, repo_url, to_path, username, token):
