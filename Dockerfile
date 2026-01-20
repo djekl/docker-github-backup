@@ -1,4 +1,5 @@
 FROM alpine:3.18
+LABEL org.opencontainers.image.description "Backup GitHub Repos Locally using GitHub Access Tokens"
 
 # Create non-root user matching Unraid's default UID/GID
 RUN adduser -D -u 99 -G users app
@@ -26,9 +27,6 @@ RUN chmod +x ./backup.sh && \
 
 # Switch to non-root user
 USER 99:100
-
-# Create volume for backups (optional, can be mounted externally)
-VOLUME ["/app/backups"]
 
 # Define default command
 CMD ["./backup.sh"]
