@@ -2,27 +2,53 @@
 
 echo "Project: github-backup"
 echo "Author:  lnxd"
-echo "Base:    Alpine 3.9"
-echo "Target:  Unraid"
+echo "Base:    Alpine"
+echo "Target:  Generic Docker"
 echo ""
 
-# If config doesn't exist yet, create it
-if [ ! -f /home/docker/github-backup/config/config.json ]; then
-    cp /home/docker/github-backup/config.json.example /home/docker/github-backup/config/config.json
+# Create config directory if it doesn't exist
+mkdir -p /app/config
+
+# If config doesn't exist yet, create it from example
+if [ ! -f /app/config/config.json ]; then
+    echo "Creating initial config from example..."
+    cp /app/config.json.example /app/config/config.json
 fi
 
-# Update config.json
-cp /home/docker/github-backup/config/config.json /home/docker/github-backup/config.json
+# Copy config to working location
+cp /app/config/config.json /app/config.json
 
-# Update token in config.json match $TOKEN environment variable
-sed -i '/token/c\   \"token\" : \"'${TOKEN}'\",' /home/docker/github-backup/config.json
+# If TOKEN environment variable is set, update the config
+if [ -n "$TOKEN" ]; then
+    echo "Updating token in config..."
+    # Handle multiple tokens if TOKEN contains commas
+    if echo "$TOKEN" | grep -q ","; then
+        # Multiple tokens - update the tokens array
+        sed -i 's|"tokens"[^,]*|&|g' /app/config.json
+        sed -i '/"tokens"/c\  "tokens" : "'${TOKEN}'",\' /app/config.json
+    else
+        # Single token - maintain backward compatibility
+        sed -i '/"token"/c\  "token" : "'${TOKEN}'",\' /app/config.json
+        # Also update tokens field if it exists
+        sed -i '/"tokens"/c\  "tokens" : "'${TOKEN}'",\' /app/config.json || true
+    fi
+fi
 
-# Return config.json to persistant volume
-cp /home/docker/github-backup/config.json /home/docker/github-backup/config/config.json
+# Copy updated config back to persistent volume
+cp /app/config.json /app/config/config.json
 
-# Start backup
-while true
- do python3 github-backup.py /home/docker/github-backup/config/config.json
- chown -R nobody /home/docker/backups
- sleep $SCHEDULE
+echo "Starting backup process..."
+
+# Run backup in a loop
+while true; do
+    echo "Running backup at $(date)..."
+    python3 /app/github-backup.py /app/config/config.json
+    
+    # Only try to change ownership if backup directory exists
+    if [ -d "/app/backups" ]; then
+        chown -R 1000:1000 /app/backups 2>/dev/null || echo "Note: Could not change ownership of backups"
+    fi
+    
+    echo "Backup completed. Waiting ${SCHEDULE:-3600}s until next run..."
+    sleep ${SCHEDULE:-3600}
 done
