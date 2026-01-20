@@ -1,29 +1,30 @@
 #!/bin/sh
 
-echo "Project: docker-github-backup"
-echo "Author:  djekl"
-echo "Base:    Alpine"
-echo "Target:  Generic Docker"
-echo ""
-
 # Graceful shutdown handler
 shutdown() {
     echo "Received SIGTERM/SIGINT, shutting down gracefully..."
-    kill $(jobs -p) 2>/dev/null  # Kill any sleeping jobs
+    # Kill any sleeping jobs
+    kill $(jobs -p) 2>/dev/null
     exit 0
 }
 
 # Trap SIGTERM and SIGINT
 trap shutdown SIGTERM SIGINT
 
-# Create necessary directories
-mkdir -p /app/config
-mkdir -p /app/backups
+echo "Project: docker-github-backup"
+echo "Author:  djekl"
+echo "Base:    Alpine"
+echo "Target:  Generic Docker"
+echo ""
 
-# IMPORTANT: Fix permissions so our user (99) can write
-# Even if Unraid sets 0755, we need write access for subdirs
-chmod -R 770 /app/backups 2>/dev/null || echo "Note: Could not set permissions on backups directory"
-chown -R 99:100 /app/backups 2>/dev/null || echo "Note: Could not set ownership of backups directory"
+# Create config directory
+mkdir -p /app/config
+
+# Handle backups directory with Unraid-standard permissions
+# Unraid typically uses 0777 with nobody:users (99:100) for shared folders
+mkdir -p /app/backups
+chown 99:100 /app/backups 2>/dev/null || echo "Note: Could not set ownership of backups directory"
+chmod 777 /app/backups 2>/dev/null || echo "Note: Could not set permissions on backups directory"
 
 # Copy config to working location
 cp /app/config.json.example /app/config.json
@@ -52,11 +53,9 @@ while true; do
     echo "Running backup at $(date)..."
     python3 /app/github-backup.py /app/config.json
 
-    # Only try to change ownership if backup directory exists
-    if [ -d "/app/backups" ]; then
-        chown -R 99:100 /app/backups 2>/dev/null || echo "Note: Could not change ownership of backups"
-    fi
-
+    # Ensure ongoing ownership correction (in case of external changes)
+    chown -R 99:100 /app/backups 2>/dev/null || echo "Note: Could not change ownership of backups"
+    
     echo "Backup completed. Waiting ${SCHEDULE:-3600}s until next run…"
     sleep "${SCHEDULE:-3600}" &
     wait $!
