@@ -6,10 +6,9 @@ import sys
 import json
 import errno
 import argparse
+import requests
 import subprocess
 import urllib.parse
-
-import requests
 
 
 def get_json(url, token):
@@ -32,13 +31,20 @@ def check_name(name):
 
 
 def mkdir(path):
+    """Create directory with error handling"""
     try:
-        os.makedirs(path, 0o770)
-    except OSError as ose:
-        if ose.errno != errno.EEXIST:
-            raise
+        os.makedirs(path, 0o775, exist_ok=True)
+        return True
+    except PermissionError:
+        # Try with more permissive permissions
+        try:
+            os.makedirs(path, 0o777, exist_ok=True)
+            return True
+        except Exception:
+            print(f"Warning: Could not create directory {path}", file=sys.stderr)
+            return False
+    except Exception:
         return False
-    return True
 
 
 def mirror(repo_name, repo_url, to_path, username, token):
