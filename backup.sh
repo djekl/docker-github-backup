@@ -20,8 +20,10 @@ trap shutdown SIGTERM SIGINT
 mkdir -p /app/config
 mkdir -p /app/backups
 
-# Ensure backups dir is owned by app user
-chown -R 99:100 /app/backups 2>/dev/null || echo "Note: Could not set ownership of backups"
+# IMPORTANT: Fix permissions so our user (99) can write
+# Even if Unraid sets 0755, we need write access for subdirs
+chmod -R 770 /app/backups 2>/dev/null || echo "Note: Could not set permissions on backups directory"
+chown -R 99:100 /app/backups 2>/dev/null || echo "Note: Could not set ownership of backups directory"
 
 # Copy config to working location
 cp /app/config.json.example /app/config.json
