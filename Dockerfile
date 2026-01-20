@@ -1,8 +1,7 @@
 FROM alpine:3.18
 
-# Create non-root user early for better security
-RUN addgroup -g 100 -S app && \
-    adduser -u 99 -S app -G app
+# Create non-root user matching Unraid's default UID/GID
+RUN adduser -D -u 99 -G users app
 
 # Set working directory
 WORKDIR /app
