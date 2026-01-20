@@ -87,6 +87,31 @@ def main():
         print("Created directory {0}".format(path), file=sys.stderr)
 
     user = next(get_json("https://api.github.com/user", token))
+    user_login = user["login"]
+
+    # Fetch organizations the user has access to
+    orgs = []
+    for page in get_json("https://api.github.com/user/orgs", token):
+        orgs.extend(page)
+
+    # Backup repositories for each organization
+    for org in orgs:
+        org_login = org["login"]
+        org_path = os.path.join(path, org_login)
+        mkdir(org_path)
+
+        # Fetch repositories for the organization
+        for page in get_json("https://api.github.com/orgs/{}/repos".format(org_login), token):
+            for repo in page:
+                name = check_name(repo["name"])
+                clone_url = repo["clone_url"]
+
+                mirror(name, clone_url, org_path, user["login"], token)
+
+    # Backup user's own repositories in a folder named after the user
+    user_path = os.path.join(path, user_login)
+    mkdir(user_path)
+
     for page in get_json("https://api.github.com/user/repos", token):
         for repo in page:
             name = check_name(repo["name"])
@@ -96,9 +121,7 @@ def main():
             if owners and owner not in owners:
                 continue
 
-            owner_path = os.path.join(path, owner)
-            mkdir(owner_path)
-            mirror(name, clone_url, owner_path, user["login"], token)
+            mirror(name, clone_url, user_path, user["login"], token)
 
 
 if __name__ == "__main__":
