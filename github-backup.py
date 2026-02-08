@@ -81,6 +81,20 @@ def mirror(repo_name, repo_url, to_path, username, token):
     )
 
 
+def download_zip_snapshot(repo_name, repo_url, to_path, token):
+    zip_url = repo_url.rstrip("/").replace(".git", "") + "/archive/refs/heads/HEAD.zip"
+    zip_path = os.path.join(to_path, f"{repo_name}.zip")
+
+    try:
+        r = requests.get(zip_url, headers={"Authorization": f"token {token}"}, stream=True)
+        r.raise_for_status()
+        with open(zip_path, "wb") as fh:
+            for chunk in r.iter_content(chunk_size=1024 * 64):
+                fh.write(chunk)
+    except requests.exceptions.HTTPError as e:
+        print(f"    Warning: could not fetch ZIP for {repo_name}: {e}", file=sys.stderr)
+
+
 def backup_repositories_for_token(token, base_path):
     """Backup repositories for a single token"""
     try:
@@ -88,9 +102,9 @@ def backup_repositories_for_token(token, base_path):
     except requests.exceptions.HTTPError as e:
         print(f"Error: Could not authenticate with token: {e}", file=sys.stderr)
         return False
-    
+
     user_login = user["login"]
-    
+
     # Create base directory for this token (named after the user)
     token_base_path = os.path.join(base_path, user_login)
     mkdir(token_base_path)
@@ -120,36 +134,39 @@ def backup_repositories_for_token(token, base_path):
                     clone_url = repo["clone_url"]
                     print(f"    Backing up repo: {org_login}/{name}")
                     mirror(name, clone_url, org_path, user["login"], token)
+                    print(f"    Downloading repo zip snapshot: {org_login}/{name}")
+                    download_zip_snapshot(name, clone_url, org_path, token)
         except requests.exceptions.HTTPError as e:
             print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
 
     # Backup ALL repositories accessible to the user, organized by actual owner
     print(f"  Backing up all repositories accessible to: {user_login}")
-    
     processed_repos = set()  # Track already backed up repos to avoid duplicates
-    
+
     try:
         for page in get_json("https://api.github.com/user/repos", token):
             for repo in page:
                 name = check_name(repo["name"])
                 owner = check_name(repo["owner"]["login"])
                 clone_url = repo["clone_url"]
-                
+
                 # Create unique identifier to prevent duplicates
                 repo_id = f"{owner}/{name}"
                 if repo_id in processed_repos:
                     continue
                 processed_repos.add(repo_id)
-                
+
                 # Create directory structure based on actual repository owner
                 owner_path = os.path.join(token_base_path, owner)
                 mkdir(owner_path)
-                
+
                 print(f"    Backing up repo: {owner}/{name}")
                 mirror(name, clone_url, owner_path, user["login"], token)
+                print(f"    Downloading repo zip snapshot: {owner}/{name}")
+                download_zip_snapshot(name, clone_url, owner_path, token)
     except requests.exceptions.HTTPError as e:
         print(f"Warning: Could not fetch user repos for {user_login}: {e}", file=sys.stderr)
-    
+
     return True
 
 
@@ -187,10 +204,10 @@ def main():
     # Process each token
     for i, token in enumerate(tokens):
         if len(tokens) > 1:
-            print(f"\nProcessing token {i+1}/{len(tokens)} (ending in {token[-4:]})", file=sys.stderr)
+            print(f"\nProcessing token {i + 1}/{len(tokens)} (ending in {token[-4:]})", file=sys.stderr)
         else:
             print("Processing token", file=sys.stderr)
-            
+
         success = backup_repositories_for_token(token, path)
         if not success and len(tokens) == 1:  # If only one token, exit on error
             sys.exit(1)
