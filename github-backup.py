@@ -51,6 +51,7 @@ def mkdir(path):
 
 
 def mirror(repo_name, repo_url, to_path, username, token):
+    """Create an empty GIT rep so we have the history, but not the files"""
     parsed = urllib.parse.urlparse(repo_url)
     modified = list(parsed)
     modified[1] = "{username}:{token}@{netloc}".format(
@@ -82,11 +83,29 @@ def mirror(repo_name, repo_url, to_path, username, token):
 
 
 def download_zip_snapshot(repo_name, repo_url, to_path, token):
-    zip_url = repo_url.rstrip("/").replace(".git", "") + "/archive/refs/heads/HEAD.zip"
+    """Download ZIP Snapshot of the repo"""
+    # Build /repos/OWNER/REPO/zipball URL
+    owner, repo = (
+        repo_url.replace("https://", "")
+        .split("@")[-1] # strip possible user:token@
+        .rstrip("/")
+        .replace(".git", "")
+        .split("/")[-2:]
+    )
+    zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
     zip_path = os.path.join(to_path, f"{repo_name}.zip")
 
     try:
-        r = requests.get(zip_url, headers={"Authorization": f"token {token}"}, stream=True)
+        r = requests.get(
+            zip_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            stream=True,
+            timeout=300,
+        )
         r.raise_for_status()
         with open(zip_path, "wb") as fh:
             for chunk in r.iter_content(chunk_size=1024 * 64):
