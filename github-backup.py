@@ -82,18 +82,10 @@ def mirror(repo_name, repo_url, to_path, username, token):
     )
 
 
-def download_zip_snapshot(repo_name, repo_url, to_path, token):
+def download_zip_snapshot(owner, repo, to_path, token):
     """Download ZIP Snapshot of the repo"""
-    # Build /repos/OWNER/REPO/zipball URL
-    owner, repo = (
-        repo_url.replace("https://", "")
-        .split("@")[-1] # strip possible user:token@
-        .rstrip("/")
-        .replace(".git", "")
-        .split("/")[-2:]
-    )
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
-    zip_path = os.path.join(to_path, f"{repo_name}.zip")
+    zip_path = os.path.join(to_path, f"{repo}.zip")
 
     try:
         r = requests.get(
@@ -111,7 +103,7 @@ def download_zip_snapshot(repo_name, repo_url, to_path, token):
             for chunk in r.iter_content(chunk_size=1024 * 64):
                 fh.write(chunk)
     except requests.exceptions.HTTPError as e:
-        print(f"    Warning: could not fetch ZIP for {repo_name}: {e}", file=sys.stderr)
+        print(f"    Warning: could not fetch ZIP for {owner}/{repo_name}: {e}", file=sys.stderr)
 
 
 def backup_repositories_for_token(token, base_path):
@@ -151,10 +143,12 @@ def backup_repositories_for_token(token, base_path):
                 for repo in page:
                     name = check_name(repo["name"])
                     clone_url = repo["clone_url"]
+
                     print(f"    Backing up repo: {org_login}/{name}")
                     mirror(name, clone_url, org_path, user["login"], token)
-                    print(f"    Downloading repo zip snapshot: {org_login}/{name}")
-                    download_zip_snapshot(name, clone_url, org_path, token)
+
+                    print(f"    Downloading repo zip snapshot: {org_login}/{name}.zip")
+                    download_zip_snapshot(org_login, name, org_path, token)
         except requests.exceptions.HTTPError as e:
             print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
 
@@ -181,8 +175,9 @@ def backup_repositories_for_token(token, base_path):
 
                 print(f"    Backing up repo: {owner}/{name}")
                 mirror(name, clone_url, owner_path, user["login"], token)
-                print(f"    Downloading repo zip snapshot: {owner}/{name}")
-                download_zip_snapshot(name, clone_url, owner_path, token)
+
+                print(f"    Downloading repo zip snapshot: {owner}/{name}.zip")
+                download_zip_snapshot(owner, name, owner_path, token)
     except requests.exceptions.HTTPError as e:
         print(f"Warning: Could not fetch user repos for {user_login}: {e}", file=sys.stderr)
 
