@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import json
+import shlex
 import errno
 import argparse
 import requests
@@ -41,11 +42,11 @@ def mkdir(path):
             pass  # Non-critical if this fails
         return True
     except PermissionError:
-        print(f"Permission denied creating directory: {path}", file=sys.stderr)
+        print(f"Permission denied creating directory: {path}", file=sys.stderr, flush=True)
         return False
     except Exception as e:
         if errno.errorcode.get(e.errno) != 'EEXIST':
-            print(f"Error creating directory {path}: {e}", file=sys.stderr)
+            print(f"Error creating directory {path}: {e}", file=sys.stderr, flush=True)
             return False
         return True
 
@@ -64,21 +65,20 @@ def mirror(repo_name, repo_url, to_path, username, token):
 
     # git-init manual:
     # "Running git init in an existing repository is safe."
-    subprocess.call(["git", "init", "--bare", "--quiet"], cwd=repo_path)
+    subprocess.call(
+        shlex.split(f"git init --bare --quiet"),
+        cwd=repo_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
     # https://github.com/blog/1270-easier-builds-and-deployments-using-git-over-https-and-oauth:
     # "To avoid writing tokens to disk, don't clone."
     subprocess.call(
-        [
-            "git",
-            "fetch",
-            "--force",
-            "--prune",
-            "--tags",
-            repo_url,
-            "refs/heads/*:refs/heads/*",
-        ],
+        shlex.split(f"git fetch --force --prune --tags --quiet {repo_url} refs/heads/*:refs/heads/*"),
         cwd=repo_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -103,7 +103,8 @@ def download_zip_snapshot(owner, repo, to_path, token):
             for chunk in r.iter_content(chunk_size=1024 * 64):
                 fh.write(chunk)
     except requests.exceptions.HTTPError as e:
-        print(f"    Warning: could not fetch ZIP for {owner}/{repo_name}: {e}", file=sys.stderr)
+        # print(f"    Warning: could not fetch ZIP for {owner}/{repo}: {e}\n", file=sys.stderr, flush=True)
+        pass
 
 
 def backup_repositories_for_token(token, base_path):
@@ -111,7 +112,7 @@ def backup_repositories_for_token(token, base_path):
     try:
         user = next(get_json("https://api.github.com/user", token))
     except requests.exceptions.HTTPError as e:
-        print(f"Error: Could not authenticate with token: {e}", file=sys.stderr)
+        print(f"Error: Could not authenticate with token: {e}", file=sys.stderr, flush=True)
         return False
 
     user_login = user["login"]
@@ -119,7 +120,7 @@ def backup_repositories_for_token(token, base_path):
     # Create base directory for this token (named after the user)
     token_base_path = os.path.join(base_path, user_login)
     mkdir(token_base_path)
-    print(f"Backing up repositories for user: {user_login} to {token_base_path}")
+    print(f"Backing up repositories for user: {user_login} to {token_base_path}", flush=True)
 
     # Fetch organizations the user has access to
     orgs = []
@@ -127,7 +128,7 @@ def backup_repositories_for_token(token, base_path):
         for page in get_json("https://api.github.com/user/orgs", token):
             orgs.extend(page)
     except requests.exceptions.HTTPError as e:
-        print(f"Warning: Could not fetch organizations for user {user_login}: {e}", file=sys.stderr)
+        print(f"Warning: Could not fetch organizations for user {user_login}: {e}", file=sys.stderr, flush=True)
         orgs = []
 
     # Backup repositories for each organization
@@ -135,7 +136,7 @@ def backup_repositories_for_token(token, base_path):
         org_login = org["login"]
         org_path = os.path.join(token_base_path, org_login)
         mkdir(org_path)
-        print(f"  Backing up organization: {org_login}")
+        print(f"\n  Backing up organization: {org_login}", flush=True)
 
         # Fetch repositories for the organization
         try:
@@ -144,16 +145,16 @@ def backup_repositories_for_token(token, base_path):
                     name = check_name(repo["name"])
                     clone_url = repo["clone_url"]
 
-                    print(f"    Backing up repo: {org_login}/{name}")
+                    print(f"    -> Backing up repo: {org_login}/{name}", flush=True)
                     mirror(name, clone_url, org_path, user["login"], token)
 
-                    print(f"    Downloading repo zip snapshot: {org_login}/{name}.zip")
+                    print(f"     + Downloading repo zip snapshot: {org_login}/{name}.zip\n", flush=True)
                     download_zip_snapshot(org_login, name, org_path, token)
         except requests.exceptions.HTTPError as e:
-            print(f"Warning: Could not fetch repos for org {org_login}: {e}", file=sys.stderr)
+            print(f"Warning: Could not fetch repos for org {org_login}: {e}\n", file=sys.stderr, flush=True)
 
     # Backup ALL repositories accessible to the user, organized by actual owner
-    print(f"  Backing up all repositories accessible to: {user_login}")
+    print(f"\n\n  Backing up all repositories accessible to: {user_login}", flush=True)
     processed_repos = set()  # Track already backed up repos to avoid duplicates
 
     try:
@@ -173,13 +174,13 @@ def backup_repositories_for_token(token, base_path):
                 owner_path = os.path.join(token_base_path, owner)
                 mkdir(owner_path)
 
-                print(f"    Backing up repo: {owner}/{name}")
+                print(f"    -> Backing up repo: {owner}/{name}", flush=True)
                 mirror(name, clone_url, owner_path, user["login"], token)
 
-                print(f"    Downloading repo zip snapshot: {owner}/{name}.zip")
+                print(f"     + Downloading repo zip snapshot: {owner}/{name}.zip\n", flush=True)
                 download_zip_snapshot(owner, name, owner_path, token)
     except requests.exceptions.HTTPError as e:
-        print(f"Warning: Could not fetch user repos for {user_login}: {e}", file=sys.stderr)
+        print(f"Warning: Could not fetch user repos for {user_login}: {e}\n", file=sys.stderr, flush=True)
 
     return True
 
@@ -213,14 +214,14 @@ def main():
 
     path = os.path.expanduser(config["directory"])
     if mkdir(path):
-        print("Created directory {0}".format(path), file=sys.stderr)
+        print("Created directory {0}".format(path), file=sys.stderr, flush=True)
 
     # Process each token
     for i, token in enumerate(tokens):
         if len(tokens) > 1:
-            print(f"\nProcessing token {i + 1}/{len(tokens)} (ending in {token[-4:]})", file=sys.stderr)
+            print(f"\nProcessing token {i + 1}/{len(tokens)} (ending in {token[-4:]})", file=sys.stderr, flush=True)
         else:
-            print("Processing token", file=sys.stderr)
+            print("Processing token", file=sys.stderr, flush=True)
 
         success = backup_repositories_for_token(token, path)
         if not success and len(tokens) == 1:  # If only one token, exit on error
